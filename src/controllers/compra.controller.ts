@@ -1,41 +1,58 @@
 import { Request, Response } from 'express';
 import { Compra } from '../models/compra.model';
-import { Inventario } from '../models/inventario.model';
+import { Articulo } from '../models/articulo.model';
 
-// Función para actualizar el inventario después de una compra
-const actualizarInventario = async (articuloId: string, cantidad: number) => {
-    const inventario = await Inventario.findOne({ articulo: articuloId });
 
-    if (inventario) {
-        inventario.cantidad += cantidad;
-        await inventario.save();
-    } else {
-        await Inventario.create({ articulo: articuloId, cantidad });
-    }
-};
-
-// Obtener todas las compras con detalles de artículos y responsables
 export const getCompras = async (req: Request, res: Response) => {
     try {
-        const compras = await Compra.find()
-            .populate('articulos.articulo', 'nombre precio descripcion')
-            .populate('responsable', 'nombre puesto');
+        const compras = await Compra.find().populate('articulos.articulo').populate('proveedor'); // Populate para mostrar info de artículos y proveedor
         res.json(compras);
     } catch (error) {
         res.status(500).json({ message: 'Error al obtener compras', error });
     }
 };
 
-// Crear una compra y actualizar inventario
 export const createCompra = async (req: Request, res: Response) => {
     try {
-        const nuevaCompra = new Compra(req.body);
-        await nuevaCompra.save();
+        const { articulos, proveedor, fecha } = req.body;
 
-        // Actualizar inventario por cada artículo comprado
-        for (const item of nuevaCompra.articulos) {
-            await actualizarInventario(item.articulo.toString(), item.cantidad);
+        // 1. Validar datos de entrada
+        if (!articulos || articulos.length === 0) {
+            return res.status(400).json({ message: 'Debe seleccionar al menos un artículo.' });
         }
+
+        if (!proveedor) {
+            return res.status(400).json({ message: 'Debe especificar el proveedor.' });
+        }
+
+        // 2. Calcular total y validar stock
+        let total = 0;
+        for (const item of articulos) {
+            const articulo = await Articulo.findById(item.articulo);
+            if (!articulo) {
+                return res.status(400).json({ message: `El artículo con ID ${item.articulo} no existe.` });
+            }
+
+            // Validación de stock
+            if (articulo.cantidad < item.cantidad) {
+                return res.status(400).json({ message: `No hay suficiente stock del artículo ${articulo.nombre}.` });
+            }
+
+            total += articulo.precio * item.cantidad;
+            articulo.cantidad -= item.cantidad; // Actualizar stock
+            await articulo.save(); // Guardar cambios en el artículo
+        }
+
+        // 3. Crear la compra
+        const nuevaCompra = new Compra({
+            fecha: fecha || new Date(),
+            total,
+            articulos,
+            proveedor,
+        });
+
+        // 4. Guardar la compra
+        await nuevaCompra.save();
 
         res.status(201).json(nuevaCompra);
     } catch (error) {
@@ -50,18 +67,8 @@ export const updateCompra = async (req: Request, res: Response) => {
         const compraAnterior = await Compra.findById(id);
         if (!compraAnterior) return res.status(404).json({ message: 'Compra no encontrada' });
 
-        // Revertir inventario de la compra anterior
-        for (const item of compraAnterior.articulos) {
-            await actualizarInventario(item.articulo.toString(), -item.cantidad);
-        }
-
         // Actualizar la compra
-        const compraActualizada = await Compra.findByIdAndUpdate(id, req.body, { new: true });
-
-        // Actualizar inventario con los nuevos valores
-        for (const item of compraActualizada!.articulos) {
-            await actualizarInventario(item.articulo.toString(), item.cantidad);
-        }
+        const compraActualizada = await Compra.findByIdAndUpdate(id, req.body, { new: true });      
 
         res.json(compraActualizada);
     } catch (error) {
@@ -75,11 +82,6 @@ export const deleteCompra = async (req: Request, res: Response) => {
         const { id } = req.params;
         const compra = await Compra.findById(id);
         if (!compra) return res.status(404).json({ message: 'Compra no encontrada' });
-
-        // Revertir inventario
-        for (const item of compra.articulos) {
-            await actualizarInventario(item.articulo.toString(), -item.cantidad);
-        }
 
         await Compra.findByIdAndDelete(id);
         res.json({ message: 'Compra eliminada' });
