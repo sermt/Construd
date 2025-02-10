@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Directorio de salida de TypeScript
+dist/
+
+# Archivos de entorno
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor y sistema
+.DS_Store
+Thumbs.db
+
+# Configuraciones de IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
